@@ -136,6 +136,56 @@ drake_cc_binary(
 )
 
 drake_cc_binary(
+    name = "collocation_diagram_runner",
+    srcs = ["collocation_diagram_runner.cc"],
+    data = [
+        ":models",
+        "//manipulation/models/iiwa_description:models",
+    ],
+    deps = [
+        ":iiwa_common",
+        ":iiwa_lcm",
+        "//common:is_approx_equal_abstol",
+        "//geometry:drake_visualizer",
+        "//multibody/inverse_kinematics:kinematic_evaluators",
+        "//multibody/parsing",
+        "//multibody/plant",
+        "//planning/trajectory_optimization:direct_collocation",
+        "//solvers:solve",
+        "//systems/analysis:simulator",
+        "//systems/controllers:pid_controlled_system",
+        "//systems/framework:diagram",
+        "//systems/primitives:trajectory_source",
+        "@gflags",
+        "@lcm",
+    ],
+)
+
+drake_cc_binary(
+    name = "kin_traj_optimization_runner",
+    srcs = ["kin_traj_optimization_runner.cc"],
+    data = [
+        ":models",
+        "//manipulation/models/iiwa_description:models",
+    ],
+    deps = [
+        ":iiwa_common",
+        ":iiwa_lcm",
+        "//geometry:drake_visualizer",
+        "//multibody/inverse_kinematics",
+        "//multibody/parsing",
+        "//multibody/plant",
+        "//planning/trajectory_optimization:kinematic_trajectory_optimization",
+        "//solvers:ipopt_solver",
+        "//solvers:solve",
+        "//systems/analysis:simulator",
+        "//systems/framework:diagram",
+        "@gflags",
+        "@lcm",
+    ],
+)
+
+drake_cc_binary(
     name = "move_iiwa_ee",
     srcs = ["move_iiwa_ee.cc"],
     data = [

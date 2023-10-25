@@ -103,8 +103,18 @@ int DoMain() {
       systems::controllers::PidControlledSystem<double>::ConnectController(
           pendulum_ptr->get_input_port(), pendulum_ptr->get_state_output_port(),
           Vector1d{Kp}, Vector1d{Ki}, Vector1d{Kd}, &builder);
-  builder.Connect(input_trajectory->get_output_port(),
-                  connect_result.control_input_port);
+
+  constexpr bool kUseInputTraj = false;
+  if (kUseInputTraj) {
+    builder.Connect(input_trajectory->get_output_port(),
+                    connect_result.control_input_port);
+  } else {
+    auto source = builder.AddSystem<systems::ConstantVectorSource>(
+        PendulumInput<double>{}.with_tau(0.0));
+    source->set_name("source");
+    builder.Connect(source->get_output_port(),
+                    connect_result.control_input_port);
+  }
   builder.Connect(state_trajectory->get_output_port(),
                   connect_result.state_input_port);
 
@@ -119,12 +129,11 @@ int DoMain() {
   simulator.Initialize();
   simulator.AdvanceTo(pp_xtraj.end_time());
 
-  const auto& pendulum_state =
-      PendulumPlant<double>::get_state(diagram->GetSubsystemContext(
-          *pendulum_ptr, simulator.get_context()));
+  const auto& pendulum_state = PendulumPlant<double>::get_state(
+      diagram->GetSubsystemContext(*pendulum_ptr, simulator.get_context()));
 
-  if (!is_approx_equal_abstol(pendulum_state.value(),
-                              final_state.value(), 1e-3)) {
+  if (!is_approx_equal_abstol(pendulum_state.value(), final_state.value(),
+                              1e-3)) {
     throw std::runtime_error("Did not reach trajectory target.");
   }
   return 0;

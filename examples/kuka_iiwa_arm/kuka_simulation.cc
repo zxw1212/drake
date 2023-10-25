@@ -5,6 +5,7 @@
 /// and lcmt_iiwa_command messages. It is intended to be a be a direct
 /// replacement for the KUKA iiwa driver and the actual robot hardware.
 
+#include <iostream>
 #include <memory>
 
 #include <gflags/gflags.h>
@@ -49,8 +50,8 @@ namespace {
 using multibody::MultibodyPlant;
 using systems::Context;
 using systems::Demultiplexer;
-using systems::StateInterpolatorWithDiscreteDerivative;
 using systems::Simulator;
+using systems::StateInterpolatorWithDiscreteDerivative;
 using systems::controllers::InverseDynamicsController;
 using systems::controllers::StateFeedbackControllerInterface;
 
@@ -58,8 +59,8 @@ int DoMain() {
   systems::DiagramBuilder<double> builder;
 
   // Adds a plant.
-  auto [plant, scene_graph] = multibody::AddMultibodyPlantSceneGraph(
-      &builder, FLAGS_sim_dt);
+  auto [plant, scene_graph] =
+      multibody::AddMultibodyPlantSceneGraph(&builder, FLAGS_sim_dt);
   const char* kModelPath =
       "drake/manipulation/models/iiwa_description/"
       "urdf/iiwa14_polytope_collision.urdf";
@@ -67,7 +68,30 @@ int DoMain() {
       (!FLAGS_urdf.empty() ? FLAGS_urdf : FindResourceOrThrow(kModelPath));
   auto iiwa_instance =
       multibody::Parser(&plant, &scene_graph).AddModels(urdf).at(0);
-  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("base"));
+  plant.WeldFrames(plant.world_frame(),
+                   plant.GetFrameByName("base", iiwa_instance));
+
+  // add new object(besides arm arm) to scene
+  const std::string obj_url =
+      "package://drake/examples/kuka_iiwa_arm/models/objects/"
+      "folding_table.urdf";
+  const auto model =
+      multibody::Parser(&plant, &scene_graph).AddModelsFromUrl(obj_url).at(0);
+  plant.WeldFrames(
+      plant.world_frame(), plant.GetFrameByName("table_surface_center", model),
+      math::RigidTransform<double>(math::RollPitchYaw<double>(0.0, 0.0, 0.0),
+                                   Eigen::Vector3d(0.0, 0.0, 1.0)));
+
+  //   multibody::Parser parser(&plant);
+  //   const auto models = parser.AddModelsFromUrl(sdf_url);
+  //   DRAKE_THROW_UNLESS(models.size() == 1);
+  //   const auto& child_frame = plant.GetFrameByName("amazon_table",
+  //   models[0]); plant.WeldFrames(
+  //       plant.world_frame(), child_frame,
+  //       math::RigidTransform<double>(math::RollPitchYaw<double>(0.0, 0.0,
+  //       0.0),
+  //                                    Eigen::Vector3d(0, 0.0, -1.5)));
+
   plant.Finalize();
 
   // TODO(sammy-tri) Add a floor.
@@ -79,7 +103,7 @@ int DoMain() {
 
   // Since we welded the model to the world above, the only remaining joints
   // should be those in the arm.
-  const int num_joints = plant.num_positions();
+  const int num_joints = plant.num_positions(iiwa_instance);
   DRAKE_DEMAND(num_joints % kIiwaArmNumJoints == 0);
   const int num_iiwa = num_joints / kIiwaArmNumJoints;
 
@@ -108,14 +132,13 @@ int DoMain() {
       systems::lcm::LcmSubscriberSystem::Make<drake::lcmt_iiwa_command>(
           "IIWA_COMMAND", lcm));
   command_sub->set_name("command_subscriber");
-  auto command_receiver =
-      builder.AddSystem<IiwaCommandReceiver>(num_joints);
+  auto command_receiver = builder.AddSystem<IiwaCommandReceiver>(num_joints);
   command_receiver->set_name("command_receiver");
-  auto plant_state_demux = builder.AddSystem<Demultiplexer>(
-      2 * num_joints, num_joints);
+  auto plant_state_demux =
+      builder.AddSystem<Demultiplexer>(2 * num_joints, num_joints);
   plant_state_demux->set_name("plant_state_demux");
-  auto desired_state_from_position = builder.AddSystem<
-      StateInterpolatorWithDiscreteDerivative>(
+  auto desired_state_from_position =
+      builder.AddSystem<StateInterpolatorWithDiscreteDerivative>(
           num_joints, kIiwaLcmStatusPeriod,
           true /* suppress_initial_transient */);
   desired_state_from_position->set_name("desired_state_from_position");
@@ -169,6 +192,18 @@ int DoMain() {
   auto sys = builder.Build();
 
   Simulator<double> simulator(*sys);
+
+  systems::Context<double>& root_context = simulator.get_mutable_context();
+
+  // Set the initial position
+  Eigen::VectorXd initial_position = Eigen::VectorXd::Zero(num_joints);
+  initial_position(3) = 1.57;
+  plant.SetPositions(&sys->GetMutableSubsystemContext(plant, &root_context),
+                     initial_position);
+  const auto init_transform = plant.CalcRelativeTransform(
+      sys->GetMutableSubsystemContext(plant, &root_context),
+      plant.world_frame(), plant.GetFrameByName("iiwa_link_ee"));
+  std::cout << "init pose: " << init_transform << std::endl;
 
   simulator.set_publish_every_time_step(false);
   simulator.set_target_realtime_rate(FLAGS_target_realtime_rate);
